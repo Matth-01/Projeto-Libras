@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memória em Libras — Protótipo</title>
+  <style>
+    :root{
+      --bg: #f3f6fb;
+      --card-bg: #ffffff;
+      --accent: #2b7cff;
+      --success: #2ecc71;
+      --danger: #ff6b6b;
+      --shadow: 0 6px 18px rgba(20,30,60,0.08);
+      --card-size: 150px;
+    }
+    *{box-sizing:border-box}
+    body{font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:var(--bg); color:#123; margin:0; padding:24px; display:flex; align-items:flex-start; justify-content:center; min-height:100vh}
+    .wrap{width:100%; max-width:980px}
+    header{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px}
+    h1{font-size:20px; margin:0}
+    p.lead{margin:6px 0 0; color:#334; font-size:14px}
+    .controls{display:flex; gap:8px; align-items:center}
+    button{background:var(--accent); color:white; border:0; padding:8px 12px; border-radius:8px; cursor:pointer; box-shadow:var(--shadow)}
+    button.secondary{background:white; color:var(--accent); border:1px solid rgba(43,124,255,0.16)}
+    .status{display:flex; gap:12px; align-items:center}
+
+    /* Grid */
+    .board{display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; padding:12px; background:transparent}
+
+    /* Card */
+    .card{width:100%; aspect-ratio:1 / 1; perspective:1000px}
+    .card-inner{position:relative; width:100%; height:100%; transform-style:preserve-3d; transition:transform 350ms cubic-bezier(.2,.9,.3,1)}
+    .card.flipped .card-inner{transform:rotateY(180deg)}
+    .face{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; border-radius:12px; backface-visibility:hidden; box-shadow:var(--shadow);}
+    .face.front{background:var(--card-bg); transform:rotateY(180deg); flex-direction:column; padding:10px}
+    .face.back{background:linear-gradient(135deg,#ffffff,#eef5ff)}
+    .emoji{font-size:48px}
+    .label{margin-top:8px; font-weight:600}
+    .libras-badge{display:flex; gap:6px; align-items:center; font-size:12px; padding:6px 8px; border-radius:10px; background:rgba(43,124,255,0.08); color:var(--accent)}
+
+    /* small screens */
+    @media (max-width:720px){
+      .board{grid-template-columns:repeat(3,1fr)}
+    }
+
+    /* instructions */
+    .instructions{background:white; padding:12px; border-radius:10px; margin-bottom:12px; box-shadow:var(--shadow)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Memória em Libras — Protótipo</h1>
+        <p class="lead">Associe a imagem ao sinal em Libras. Clique em duas cartas para formar pares. Projeto para apresentação escolar.</p>
+      </div>
+      <div class="status">
+        <div class="controls">
+          <button id="btnReiniciar">Reiniciar</button>
+          <button id="btnMostrar" class="secondary">Mostrar tudo</button>
+        </div>
+      </div>
+    </header>
+
+    
+
+    <main>
+      <section class="board" id="board" aria-label="Tabuleiro do jogo"></section>
+      <div style="margin-top:12px; display:flex; gap:10px; align-items:center">
+        <div style="font-weight:600">Pares encontrados: <span id="pares">0</span> / <span id="total">6</span></div>
+        <div id="mensagem" style="margin-left:auto; font-weight:700"></div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Dados do jogo - cada "item" representa um par: {key, emoji, nome}
+    const itens = [
+      {key:'gato', emoji:'🐱', nome:'Gato'},
+      {key:'abelha', emoji:'🐝', nome:'Abelha'},
+      {key:'jacaré', emoji:'🐊', nome:'Jacaré'},
+      {key:'navio', emoji:'🚢', nome:'Navio'},
+      {key:'peixe', emoji:'🐠', nome:'Peixe'},
+      {key:'queijo', emoji:'🧀', nome:'Queijo'}
+    ];
+
+    const board = document.getElementById('board');
+    const paresSpan = document.getElementById('pares');
+    const totalSpan = document.getElementById('total');
+    const mensagem = document.getElementById('mensagem');
+    const btnReiniciar = document.getElementById('btnReiniciar');
+    const btnMostrar = document.getElementById('btnMostrar');
+
+    let cards = []; // array de cartas (cada carta tem {id,key,type})
+    let first = null, second = null;
+    let lock = false;
+    let found = 0;
+
+    function buildCards(){
+      cards = [];
+      itens.forEach(it => {
+        cards.push({id:it.key + '_obj', key: it.key, type: 'obj', emoji:it.emoji, nome: it.nome});
+        cards.push({id:it.key + '_libras', key: it.key, type: 'libras', emoji:it.emoji, nome: it.nome});
+      });
+      // embaralhar
+      cards = shuffle(cards);
+      totalSpan.textContent = itens.length;
+      render();
+    }
+
+    function render(){
+      board.innerHTML = '';
+      cards.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = c.id;
+        card.dataset.key = c.key;
+        card.role = 'button';
+        card.setAttribute('aria-pressed','false');
+
+        const inner = document.createElement('div');
+        inner.className = 'card-inner';
+
+        const back = document.createElement('div');
+        back.className = 'face back';
+        back.innerHTML = '<div style="text-align:center"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 9l3 3 5-5" stroke="#2b7cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><div style="font-size:12px;margin-top:6px;color:#225">MEMÓRIA</div></div>';
+
+        const front = document.createElement('div');
+        front.className = 'face front';
+
+        if(c.type === 'obj'){
+          front.innerHTML = `<div style="text-align:center"><div class=\"emoji\">${c.emoji}</div><div class=\"label\">${c.nome}</div></div>`;
+        } else {
+          // CARTA DE LIBRAS COM IMAGEM REAL
+  front.innerHTML = `
+    <img src="imagens/${c.key}.png" 
+         alt="Sinal em Libras de ${c.nome}" 
+         style="width:100%; height:100%; object-fit:contain; border-radius:10px;">
+  `;}
+
+        inner.appendChild(back);
+        inner.appendChild(front);
+        card.appendChild(inner);
+
+        card.addEventListener('click', () => onCardClick(card, c));
+
+        board.appendChild(card);
+      });
+    }
+
+    function onCardClick(cardEl, cardData){
+      if(lock) return;
+      if(cardEl.classList.contains('flipped')) return;
+      flip(cardEl);
+
+      if(!first){
+        first = {el:cardEl, data:cardData};
+        return;
+      }
+      second = {el:cardEl, data:cardData};
+      lock = true;
+
+      setTimeout(() => {
+        checkMatch();
+      }, 700);
+    }
+
+    function checkMatch(){
+      if(first.data.key === second.data.key){
+        // par encontrado
+        first.el.style.pointerEvents = 'none';
+        second.el.style.pointerEvents = 'none';
+        found++;
+        paresSpan.textContent = found;
+        if(found === itens.length){
+          mensagem.textContent = '🎉 Parabéns! Você encontrou todos os pares!';
+        }
+      } else {
+        // não é par - vira de volta
+        unflip(first.el);
+        unflip(second.el);
+      }
+
+      // reset
+      first = null; second = null; lock = false;
+    }
+
+    function flip(el){
+      el.classList.add('flipped');
+      el.querySelector('.card-inner').style.transform = 'rotateY(180deg)';
+      el.setAttribute('aria-pressed','true');
+    }
+    function unflip(el){
+      el.classList.remove('flipped');
+      el.querySelector('.card-inner').style.transform = '';
+      el.setAttribute('aria-pressed','false');
+    }
+
+    function shuffle(array){
+      for(let i = array.length -1; i>0; i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    btnReiniciar.addEventListener('click', () => {
+      found = 0; paresSpan.textContent = found; mensagem.textContent = '';
+      buildCards();
+    });
+
+    btnMostrar.addEventListener('click', () => {
+      // vira todas as cartas por 1.4s
+      document.querySelectorAll('.card').forEach(c => {
+        flip(c);
+      });
+      setTimeout(() => {
+        document.querySelectorAll('.card').forEach(c => {
+          unflip(c);
+        });
+      }, 1400);
+    });
+
+    // inicia
+    buildCards();
+  </script>
+</body>
+</html>
